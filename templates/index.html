@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPS Location Tracker with Camera</title>
+    
+    <!-- Mapbox GL JS CSS and JavaScript -->
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css" rel="stylesheet">
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js"></script>
+    
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            font-family: Arial, sans-serif;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        
+        .row {
+            display: flex;
+            flex: 1;
+        }
+        
+        #map-container {
+            flex: 3;
+            position: relative;
+            min-height: 60vh;
+        }
+        
+        #camera-container {
+            flex: 2;
+            background-color: #222;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px;
+            position: relative;
+        }
+        
+        #map { 
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+        
+        #video-feed {
+            max-width: 100%;
+            max-height: calc(100% - 60px);
+            object-fit: contain;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        
+        #camera-status {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 5px 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            border-radius: 4px;
+            z-index: 10;
+        }
+        
+        #camera-controls {
+            display: flex;
+            width: 100%;
+            justify-content: center;
+            margin-top: 10px;
+        }
+        
+        #snapshot-btn {
+            background-color: #2c87c5;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        #snapshot-btn:hover {
+            background-color: #1c77b5;
+        }
+        
+        #snapshot-btn:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        
+        #latest-snapshot {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            max-width: 120px;
+            max-height: 90px;
+            border: 2px solid white;
+            border-radius: 4px;
+            display: none;
+            cursor: pointer;
+        }
+        
+        #info-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        
+        /* Mobile responsive design */
+        @media (max-width: 768px) {
+            .row {
+                flex-direction: column;
+            }
+            
+            #map-container, #camera-container {
+                min-height: 45vh;
+            }
+            
+            #latest-snapshot {
+                max-width: 80px;
+                max-height: 60px;
+            }
+        }
+        
+        .camera-offline {
+            color: white;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .reload-btn {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 14px;
+            margin-top: 10px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        
+        .reload-btn:hover {
+            background-color: #45a049;
+        }
+        
+        .snapshot-notification {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            z-index: 1000;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div id="map-container">
+                <div id="map"></div>
+                <div id="info-panel">
+                    <h3>Current Location</h3>
+                    <p>Latitude: <span id="latitude">Loading...</span></p>
+                    <p>Longitude: <span id="longitude">Loading...</span></p>
+                    <p>Last Updated: <span id="updated">Never</span></p>
+                </div>
+            </div>
+            <div id="camera-container">
+                <span id="camera-status">Connecting...</span>
+                <img id="video-feed" src="/video_feed" alt="Camera Feed" onerror="handleCameraError()">
+            </div>
+        </div>
+    </div>
+    
+    <div id="snapshot-notification" class="snapshot-notification">
+        Snapshot taken!
+    </div>
+
+    <script>
+        // Initialize Mapbox
+        mapboxgl.accessToken = '{{ mapbox_api_key }}';
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/streets-v12',
+            zoom: 15
+        });
+
+        // Create a marker for our position
+        const marker = new mapboxgl.Marker({
+            color: "#FF0000"
+        });
+
+        // Variables for snapshots
+        let latestSnapshotPath = null;
+        let locationRetryCount = 0;
+        let maxRetries = 5;
+
+        // Function to update location
+        function updateLocation() {
+            fetch('/get_location')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        // Reset retry counter on success
+                        locationRetryCount = 0;
+                        
+                        // Update info panel
+                        document.getElementById('latitude').textContent = data.latitude.toFixed(6);
+                        document.getElementById('longitude').textContent = data.longitude.toFixed(6);
+                        document.getElementById('updated').textContent = new Date().toLocaleTimeString();
+                        
+                        // Update map marker
+                        const lngLat = [data.longitude, data.latitude];
+                        marker.setLngLat(lngLat).addTo(map);
+                        
+                        // Center map on current position
+                        map.setCenter(lngLat);
+                    } else {
+                        console.error('Error fetching location:', data.error);
+                        locationRetryCount++;
+                        
+                        if (locationRetryCount > maxRetries) {
+                            document.getElementById('latitude').textContent = 'Error: GPS not available';
+                            document.getElementById('longitude').textContent = 'Error: GPS not available';
+                            document.getElementById('updated').textContent = new Date().toLocaleTimeString() + ' (Error)';
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    locationRetryCount++;
+                    
+                    if (locationRetryCount > maxRetries) {
+                        document.getElementById('latitude').textContent = 'Error: Connection issue';
+                        document.getElementById('longitude').textContent = 'Error: Connection issue';
+                        document.getElementById('updated').textContent = new Date().toLocaleTimeString() + ' (Error)';
+                    }
+                });
+        }
+        
+        // Function to check camera status with retry
+        let cameraRetryCount = 0;
+        
+        function checkCameraStatus() {
+            fetch('/camera_status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusElement = document.getElementById('camera-status');
+                    
+                    if (data.status === 'active') {
+                        cameraRetryCount = 0;
+                        statusElement.textContent = 'Camera: Active';
+                        statusElement.style.backgroundColor = 'rgba(0, 128, 0, 0.7)';
+                        
+                        // If the camera is active, ensure the video feed is visible
+                        document.getElementById('video-feed').style.display = 'block';
+                        const offlineMsg = document.querySelector('.camera-offline');
+                        if (offlineMsg) {
+                            offlineMsg.remove();
+                        }
+                    } else {
+                        cameraRetryCount++;
+                        if (cameraRetryCount > 3) {
+                            statusElement.textContent = 'Camera: Offline';
+                            statusElement.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+                            
+                            // Show offline message after several retries
+                            document.getElementById('video-feed').style.display = 'none';
+                            if (!document.querySelector('.camera-offline')) {
+                                const message = document.createElement('h3');
+                                message.className = 'camera-offline';
+                                message.innerHTML = 'Camera feed unavailable<br><button onclick="reloadPage()" class="reload-btn">Reload Page</button>';
+                                document.getElementById('camera-container').appendChild(message);
+                            }
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking camera status:', error);
+                    cameraRetryCount++;
+                    if (cameraRetryCount > 3) {
+                        const statusElement = document.getElementById('camera-status');
+                        statusElement.textContent = 'Camera: Error';
+                        statusElement.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+                    }
+                });
+        }
+        
+        // Reload page function
+        function reloadPage() {
+            window.location.reload();
+        }
+        
+        // Handle camera error
+        function handleCameraError() {
+            const videoElement = document.getElementById('video-feed');
+            videoElement.style.display = 'none';
+            
+            const container = document.getElementById('camera-container');
+            
+            // Only add message if it doesn't exist
+            if (!document.querySelector('.camera-offline')) {
+                const message = document.createElement('h3');
+                message.className = 'camera-offline';
+                message.textContent = 'Camera feed unavailable';
+                container.appendChild(message);
+            }
+            
+            // Update status indicator
+            const statusElement = document.getElementById('camera-status');
+            statusElement.textContent = 'Camera: Error';
+            statusElement.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+        }
+
+        // Update location and check camera when map loads
+        map.on('load', () => {
+            updateLocation();
+            checkCameraStatus();
+            
+            // Set intervals for periodic updates
+            setInterval(updateLocation, 3000);
+            setInterval(checkCameraStatus, 10000);
+        });
+    </script>
+</body>
+</html> 
