@@ -4,7 +4,7 @@
 
 NavApp is an advanced navigation system that uses computer vision to detect road signs, pedestrians crossing roads, and vehicles in real-time. The system runs on a Raspberry Pi with a camera module and delivers audio alerts through Bluetooth speakers, enhancing driver safety by providing timely warnings about important road conditions.
 
-![System Overview - INSERT PHOTO OF COMPLETE SETUP]
+![Alt text](images/HwSetup.jpeg)
 
 ## 1. Introduction
 
@@ -16,7 +16,7 @@ The system leverages:
 - GPS for location tracking
 - YOLOv4-tiny for efficient object detection
 
-![NavApp Interface - INSERT SCREENSHOT OF WEBAPP]
+![Alt text](images/MyApp.png)
 
 ## 2. System Architecture
 
@@ -335,7 +335,7 @@ if len(frame.shape) == 3 and frame.shape[2] == 4:  # RGBA format
 
 6. **Fallback Mechanisms**: For varying light conditions and camera quality, the system includes fallback strategies to ensure reliable detection.
 
-![Road Sign Detection in Action - INSERT PHOTO]
+![Alt text](images/MyApp.png)
 
 ### 8.2 What are the advantages of this AI-based system compared to traditional navigation solutions?
 
@@ -497,4 +497,4 @@ python3 app.py
 - Power supply with sufficient capacity
 - Optional: Display for in-vehicle mounting
 
-[INSERT PHOTOS OF HARDWARE SETUP] 
+![Alt text](images/HwSetup.jpeg)
